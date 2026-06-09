@@ -1,6 +1,7 @@
 export default async function handler(req, res) {
   const VERIFY_TOKEN = "rodrigo_token_123";
 
+  // 🔑 CONFIG
   const MONDAY_API_KEY = "TU_API_KEY";
   const CONTACTS_BOARD_ID = 18416910309;
   const MESSAGES_BOARD_ID = 18416910311;
@@ -8,7 +9,7 @@ export default async function handler(req, res) {
   const PHONE_NUMBER_ID = "1114371845095549";
 
   // ============================
-  // ✅ VERIFICACIÓN META (GET)
+  // ✅ VERIFICACIÓN META
   // ============================
   if (req.method === "GET") {
     const mode = req.query["hub.mode"];
@@ -23,23 +24,32 @@ export default async function handler(req, res) {
   }
 
   // ============================
-  // ✅ POST (SALIDA + ENTRADA)
+  // ✅ POST
   // ============================
   if (req.method === "POST") {
     try {
+      console.log("📥 BODY COMPLETO:", req.body);
 
       // ======================================================
-      // 📤 1. MENSAJE SALIENTE (DESDE MONDAY)
+      // 📤 1. MENSAJE DESDE MONDAY → WHATSAPP
       // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
         const { contactPhone, replyText } = req.body;
 
-        console.log("📤 Enviando mensaje desde Monday:", {
-          contactPhone,
-          replyText,
+        // ✅ limpiar teléfono
+        const clean = contactPhone.replace(/[^0-9]/g, "");
+
+        // ✅ asegurar formato MX (+52)
+        const finalPhone = clean.startsWith("52") ? clean : "52" + clean;
+
+        console.log("📤 Enviando desde Monday:", {
+          original: contactPhone,
+          limpio: clean,
+          final: finalPhone,
+          texto: replyText,
         });
 
-        await fetch(
+        const response = await fetch(
           `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,
           {
             method: "POST",
@@ -49,19 +59,27 @@ export default async function handler(req, res) {
             },
             body: JSON.stringify({
               messaging_product: "whatsapp",
-              to: contactPhone.replace(/[^0-9]/g, ""),
+              to: finalPhone,
               text: { body: replyText },
             }),
           }
         );
 
-        console.log("✅ Mensaje enviado desde Monday a WhatsApp");
+        const data = await response.json();
+
+        console.log("📡 Respuesta WhatsApp:", data);
+
+        if (!response.ok) {
+          throw new Error(JSON.stringify(data));
+        }
+
+        console.log("✅ Mensaje enviado correctamente");
 
         return res.status(200).json({ success: true });
       }
 
       // ======================================================
-      // 📥 2. MENSAJE ENTRANTE (DESDE META)
+      // 📥 2. MENSAJE DESDE WHATSAPP → MONDAY
       // ======================================================
       const entry = req.body.entry?.[0];
       const change = entry?.changes?.[0];
@@ -80,7 +98,7 @@ export default async function handler(req, res) {
         // ======================================================
         // 🔎 BUSCAR CONTACTO
         // ======================================================
-        const searchQuery = `
+        const query = `
           query {
             boards(ids: ${CONTACTS_BOARD_ID}) {
               items_page(limit: 200) {
@@ -102,32 +120,31 @@ export default async function handler(req, res) {
             "Content-Type": "application/json",
             Authorization: MONDAY_API_KEY,
           },
-          body: JSON.stringify({ query: searchQuery }),
+          body: JSON.stringify({ query }),
         });
 
-        const searchData = await searchRes.json();
-        const items = searchData.data?.boards?.[0]?.items_page?.items || [];
+        const data = await searchRes.json();
+        const items = data.data?.boards?.[0]?.items_page?.items || [];
 
         let contactId = null;
 
         for (const item of items) {
-          const phoneCol = item.column_values.find(
+          const col = item.column_values.find(
             (c) => c.id === "phone_mm4455sp"
           );
-
-          if (phoneCol?.text?.includes(phone)) {
+          if (col?.text?.includes(phone)) {
             contactId = item.id;
             break;
           }
         }
 
         // ======================================================
-        // 🆕 CREAR CONTACTO SI NO EXISTE
+        // 🆕 CREAR CONTACTO
         // ======================================================
         if (!contactId) {
           console.log("🆕 Creando contacto...");
 
-          const mutation = `
+          const createContact = `
             mutation {
               create_item(
                 board_id: ${CONTACTS_BOARD_ID},
@@ -139,17 +156,17 @@ export default async function handler(req, res) {
             }
           `;
 
-          const resCreate = await fetch("https://api.monday.com/v2", {
+          const resC = await fetch("https://api.monday.com/v2", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: MONDAY_API_KEY,
             },
-            body: JSON.stringify({ query: mutation }),
+            body: JSON.stringify({ query: createContact }),
           });
 
-          const data = await resCreate.json();
-          contactId = data.data?.create_item?.id;
+          const dataC = await resC.json();
+          contactId = dataC.data?.create_item?.id;
         }
 
         // ======================================================
@@ -196,7 +213,7 @@ export default async function handler(req, res) {
                 mutation {
                   create_update(
                     item_id: ${messageId},
-                    body: "${text.replace(/"/g, '\\"')}"
+                    body: "${text.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"
                   ) {
                     id
                   }
@@ -207,7 +224,7 @@ export default async function handler(req, res) {
         }
 
         // ======================================================
-        // 📤 RESPUESTA AUTOMÁTICA
+        // 🤖 AUTO-REPLY
         // ======================================================
         await fetch(
           `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,
@@ -231,7 +248,7 @@ export default async function handler(req, res) {
       return res.status(200).send("EVENT_RECEIVED");
 
     } catch (error) {
-      console.error("❌ Error:", error);
+      console.error("❌ ERROR GENERAL:", error);
       return res.status(500).send("Error");
     }
   }
