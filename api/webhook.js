@@ -4,8 +4,8 @@ export default async function handler(req, res) {
   
   // 🔑 Tokens y IDs  
   const MONDAY_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjY2Mjc0MDM4OCwiYWFpIjoxMSwidWlkIjoxMDMyMTE3MDQsImlhZCI6IjIwMjYtMDUtMjVUMjI6NDE6NDAuMDAwWiIsInBlciI6Im1lOndyaXRlIiwiYWN0aWQiOjgzMjY0MTAsInJnbiI6InVzZTEifQ.aCSoGeqhkzLvJ_TUn4xuIisR3seqR5VGbaBSR-2Os3w";  
-  const CONTACTS_BOARD_ID = 18416841249; // ✅ Board correcto  
-  const MESSAGES_BOARD_ID = 18416841253; // ✅ Board de mensajes  
+  const CONTACTS_BOARD_ID = 18416910309; // ✅ Board correcto  
+  const MESSAGES_BOARD_ID = 18416910311; // ✅ Board de mensajes  
   const WHATSAPP_TOKEN = "EAAhYdCUaGewBRsVZBLKzr6ZA6zl5zcjZBV32cIASa14j7EWeiDuHSyZAtQLgglfsZC10phDZB3UJNmzqPiRvkvrIzpRnI7R5BCfe7zbPFMf1gXIvhVZAPWKZCNVDO4PKxgzl83X2r8K8wbXNDSEu9ZC9dnwclxZAsR5fQV2ywuTaHJieYA91RIJO4eECRspzASdGIOYZATYE5hFZAWYhC45kAZByS4ZC2dYUwZBsTcqhyNaHjVqj9UygYZBIcz1PsVVG0hWyN3mwwRX8m9ZCtDbd4ZAZBlF7fQ3sUgFvfbPlpNl0ZCek7QZDZD";  
   const PHONE_NUMBER_ID = "1114371845095549";  
   
