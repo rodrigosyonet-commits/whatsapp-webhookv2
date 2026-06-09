@@ -1,246 +1,240 @@
+export default async function handler(req, res) {
+  const VERIFY_TOKEN = "rodrigo_token_123";
 
-export default async function handler(req, res) {  
-  const VERIFY_TOKEN = "rodrigo_token_123";  
-  
-  // 🔑 Tokens y IDs  
-  const MONDAY_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjY2Mjc0MDM4OCwiYWFpIjoxMSwidWlkIjoxMDMyMTE3MDQsImlhZCI6IjIwMjYtMDUtMjVUMjI6NDE6NDAuMDAwWiIsInBlciI6Im1lOndyaXRlIiwiYWN0aWQiOjgzMjY0MTAsInJnbiI6InVzZTEifQ.aCSoGeqhkzLvJ_TUn4xuIisR3seqR5VGbaBSR-2Os3w";  
-  const CONTACTS_BOARD_ID = 18416910309; // ✅ Board correcto  
-  const MESSAGES_BOARD_ID = 18416910311; // ✅ Board de mensajes  
-  const WHATSAPP_TOKEN = "EAAhYdCUaGewBRsVZBLKzr6ZA6zl5zcjZBV32cIASa14j7EWeiDuHSyZAtQLgglfsZC10phDZB3UJNmzqPiRvkvrIzpRnI7R5BCfe7zbPFMf1gXIvhVZAPWKZCNVDO4PKxgzl83X2r8K8wbXNDSEu9ZC9dnwclxZAsR5fQV2ywuTaHJieYA91RIJO4eECRspzASdGIOYZATYE5hFZAWYhC45kAZByS4ZC2dYUwZBsTcqhyNaHjVqj9UygYZBIcz1PsVVG0hWyN3mwwRX8m9ZCtDbd4ZAZBlF7fQ3sUgFvfbPlpNl0ZCek7QZDZD";  
-  const PHONE_NUMBER_ID = "1114371845095549";  
-  
-  // ✅ VERIFICACIÓN META  
-  if (req.method === "GET") {  
-    const mode = req.query["hub.mode"];  
-    const token = req.query["hub.verify_token"];  
-    const challenge = req.query["hub.challenge"];  
-  
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {  
-      return res.status(200).send(challenge);  
-    }  
-    return res.status(403).send("Error");  
-  }  
-  
-  // ✅ PROCESAR MENSAJES ENTRANTES  
-  if (req.method === "POST") {  
-    try {  
-      const entry = req.body.entry?.[0];  
-      const change = entry?.changes?.[0];  
-      const value = change?.value;  
-  
-      if (value?.messages) {  
-        const msg = value.messages[0];  
-        const contact = value.contacts?.[0];  
-  
-        const phone = msg.from;  
-        const text = msg.text?.body || "";  
-        const name = contact?.profile?.name || "Lead WhatsApp";  
-  
-        console.log("📩 Mensaje recibido:", { name, phone, text });  
-  
-        // ======================================================  
-        // 🔎 1. BUSCAR CONTACTO POR TELÉFONO  
-        // ======================================================  
-        const searchQuery = `  
-          query {  
-            boards(ids: ${CONTACTS_BOARD_ID}) {  
-              items_page(limit: 1) {  
-                items {  
-                  id  
-                  name  
-                  column_values(ids: ["phone_mm4455sp"]) {  
-                    id  
-                    text  
-                  }  
-                }  
-              }  
-            }  
-          }  
-        `;  
-  
-        const searchRes = await fetch("https://api.monday.com/v2", {  
-          method: "POST",  
-          headers: {  
-            "Content-Type": "application/json",  
-            Authorization: MONDAY_API_KEY,  
-          },  
-          body: JSON.stringify({ query: searchQuery }),  
-        });  
-  
-        const searchData = await searchRes.json();  
-        const allContacts = searchData.data?.boards?.[0]?.items_page?.items || [];  
-          
-        // Buscar manualmente el contacto que coincida con el teléfono  
-        let contactItem = null;  
-        for (const item of allContacts) {  
-          const phoneCol = item.column_values.find(c => c.id === "phone_mm4455sp");  
-          if (phoneCol && phoneCol.text && phoneCol.text.includes(phone)) {  
-            contactItem = item;  
-            break;  
-          }  
-        }  
-  
-        // Si no encontramos, hacemos búsqueda paginada más exhaustiva  
-        if (!contactItem) {  
-          const deepSearchQuery = `  
-            query {  
-              boards(ids: ${CONTACTS_BOARD_ID}) {  
-                items_page(limit: 500) {  
-                  items {  
-                    id  
-                    name  
-                    column_values(ids: ["phone_mm4455sp"]) {  
-                      id  
-                      text  
-                    }  
-                  }  
-                }  
-              }  
-            }  
-          `;  
-  
-          const deepRes = await fetch("https://api.monday.com/v2", {  
-            method: "POST",  
-            headers: {  
-              "Content-Type": "application/json",  
-              Authorization: MONDAY_API_KEY,  
-            },  
-            body: JSON.stringify({ query: deepSearchQuery }),  
-          });  
-  
-          const deepData = await deepRes.json();  
-          const allItems = deepData.data?.boards?.[0]?.items_page?.items || [];  
-            
-          for (const item of allItems) {  
-            const phoneCol = item.column_values.find(c => c.id === "phone_mm4455sp");  
-            if (phoneCol && phoneCol.text && phoneCol.text.includes(phone)) {  
-              contactItem = item;  
-              break;  
-            }  
-          }  
-        }  
-  
-        let contactId = contactItem?.id;  
-  
-        // ======================================================  
-        // 🆕 2. SI NO EXISTE → CREAR CONTACTO  
-        // ======================================================  
-        if (!contactId) {  
-          console.log("🆕 Creando nuevo contacto...");  
-  
-          const createContactMutation = `  
-            mutation {  
-              create_item(  
-                board_id: ${CONTACTS_BOARD_ID},  
-                item_name: "${name.replace(/"/g, '\\"')}",  
-                column_values: "{\\"phone_mm4455sp\\":{\\"phone\\":\\"${phone}\\",\\"countryShortName\\":\\"MX\\"},\\"color_mm44af7p\\":{\\"label\\":\\"Person\\"},\\"color_mm44561h\\":{\\"label\\":\\"Active\\"}}"  
-              ) {  
-                id  
-              }  
-            }  
-          `;  
-  
-          const createRes = await fetch("https://api.monday.com/v2", {  
-            method: "POST",  
-            headers: {  
-              "Content-Type": "application/json",  
-              Authorization: MONDAY_API_KEY,  
-            },  
-            body: JSON.stringify({ query: createContactMutation }),  
-          });  
-  
-          const createData = await createRes.json();  
-          contactId = createData.data?.create_item?.id;  
-          console.log("✅ Contacto creado:", contactId);  
-        }  
-  
-        // ======================================================  
-        // 📝 3. CREAR MENSAJE EN MESSAGES BOARD  
-        // ======================================================  
-        if (contactId) {  
-          console.log("📝 Creando mensaje...");  
-  
-          const today = new Date().toISOString().split('T')[0];  
-          const createMessageMutation = `  
-            mutation {  
-              create_item(  
-                board_id: ${MESSAGES_BOARD_ID},  
-                item_name: "Mensaje de ${name.replace(/"/g, '\\"')}",  
-                column_values: "{\\"board_relation_mm44y3sx\\":{\\"item_ids\\":[${contactId}]},\\"date_mm444s0k\\":{\\"date\\":\\"${today}\\"},\\"color_mm44rc98\\":{\\"label\\":\\"Inbound\\"},\\"text_mm44c5kv\\":\\"Mensaje entrante\\",\\"color_mm44q0ze\\":{\\"label\\":\\"Open\\"}}"  
-              ) {  
-                id  
-              }  
-            }  
-          `;  
-  
-          const msgRes = await fetch("https://api.monday.com/v2", {  
-            method: "POST",  
-            headers: {  
-              "Content-Type": "application/json",  
-              Authorization: MONDAY_API_KEY,  
-            },  
-            body: JSON.stringify({ query: createMessageMutation }),  
-          });  
-  
-          const msgData = await msgRes.json();  
-          const messageId = msgData.data?.create_item?.id;  
-  
-          // ======================================================  
-          // 💬 4. AGREGAR TEXTO COMO UPDATE  
-          // ======================================================  
-          if (messageId) {  
-            const addUpdateMutation = `  
-              mutation {  
-                create_update(  
-                  item_id: ${messageId},  
-                  body: "${text.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"  
-                ) {  
-                  id  
-                }  
-              }  
-            `;  
-  
-            await fetch("https://api.monday.com/v2", {  
-              method: "POST",  
-              headers: {  
-                "Content-Type": "application/json",  
-                Authorization: MONDAY_API_KEY,  
-              },  
-              body: JSON.stringify({ query: addUpdateMutation }),  
-            });  
-  
-            console.log("✅ Update agregado al mensaje");  
-          }  
-        }  
-  
-        // ======================================================  
-        // 📤 5. RESPONDER EN WHATSAPP  
-        // ======================================================  
-        await fetch(  
-          `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,  
-          {  
-            method: "POST",  
-            headers: {  
-              "Content-Type": "application/json",  
-              Authorization: `Bearer ${WHATSAPP_TOKEN}`,  
-            },  
-            body: JSON.stringify({  
-              messaging_product: "whatsapp",  
-              to: phone,  
-              text: { body: "¡Gracias por tu mensaje! Pronto te contactaremos." },  
-            }),  
-          }  
-        );  
-  
-        console.log("✅ Respuesta enviada a WhatsApp");  
-      }  
-  
-      return res.status(200).send("EVENT_RECEIVED");  
-    } catch (error) {  
-      console.error("❌ Error:", error);  
-      return res.status(500).send("Error");  
-    }  
-  }  
-  
-  return res.status(405).send("Method not allowed");  
-}  
+  const MONDAY_API_KEY = "TU_API_KEY";
+  const CONTACTS_BOARD_ID = 18416910309;
+  const MESSAGES_BOARD_ID = 18416910311;
+  const WHATSAPP_TOKEN = "TU_TOKEN";
+  const PHONE_NUMBER_ID = "1114371845095549";
+
+  // ============================
+  // ✅ VERIFICACIÓN META (GET)
+  // ============================
+  if (req.method === "GET") {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+
+    if (mode === "subscribe" && token === VERIFY_TOKEN) {
+      return res.status(200).send(challenge);
+    }
+
+    return res.status(403).send("Error");
+  }
+
+  // ============================
+  // ✅ POST (SALIDA + ENTRADA)
+  // ============================
+  if (req.method === "POST") {
+    try {
+
+      // ======================================================
+      // 📤 1. MENSAJE SALIENTE (DESDE MONDAY)
+      // ======================================================
+      if (req.body.replyText && req.body.contactPhone) {
+        const { contactPhone, replyText } = req.body;
+
+        console.log("📤 Enviando mensaje desde Monday:", {
+          contactPhone,
+          replyText,
+        });
+
+        await fetch(
+          `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            },
+            body: JSON.stringify({
+              messaging_product: "whatsapp",
+              to: contactPhone.replace(/[^0-9]/g, ""),
+              text: { body: replyText },
+            }),
+          }
+        );
+
+        console.log("✅ Mensaje enviado desde Monday a WhatsApp");
+
+        return res.status(200).json({ success: true });
+      }
+
+      // ======================================================
+      // 📥 2. MENSAJE ENTRANTE (DESDE META)
+      // ======================================================
+      const entry = req.body.entry?.[0];
+      const change = entry?.changes?.[0];
+      const value = change?.value;
+
+      if (value?.messages) {
+        const msg = value.messages[0];
+        const contact = value.contacts?.[0];
+
+        const phone = msg.from;
+        const text = msg.text?.body || "";
+        const name = contact?.profile?.name || "Lead WhatsApp";
+
+        console.log("📩 Mensaje recibido:", { name, phone, text });
+
+        // ======================================================
+        // 🔎 BUSCAR CONTACTO
+        // ======================================================
+        const searchQuery = `
+          query {
+            boards(ids: ${CONTACTS_BOARD_ID}) {
+              items_page(limit: 200) {
+                items {
+                  id
+                  column_values(ids: ["phone_mm4455sp"]) {
+                    id
+                    text
+                  }
+                }
+              }
+            }
+          }
+        `;
+
+        const searchRes = await fetch("https://api.monday.com/v2", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: MONDAY_API_KEY,
+          },
+          body: JSON.stringify({ query: searchQuery }),
+        });
+
+        const searchData = await searchRes.json();
+        const items = searchData.data?.boards?.[0]?.items_page?.items || [];
+
+        let contactId = null;
+
+        for (const item of items) {
+          const phoneCol = item.column_values.find(
+            (c) => c.id === "phone_mm4455sp"
+          );
+
+          if (phoneCol?.text?.includes(phone)) {
+            contactId = item.id;
+            break;
+          }
+        }
+
+        // ======================================================
+        // 🆕 CREAR CONTACTO SI NO EXISTE
+        // ======================================================
+        if (!contactId) {
+          console.log("🆕 Creando contacto...");
+
+          const mutation = `
+            mutation {
+              create_item(
+                board_id: ${CONTACTS_BOARD_ID},
+                item_name: "${name.replace(/"/g, '\\"')}",
+                column_values: "{\\"phone_mm4455sp\\":{\\"phone\\":\\"${phone}\\"}}"
+              ) {
+                id
+              }
+            }
+          `;
+
+          const resCreate = await fetch("https://api.monday.com/v2", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: MONDAY_API_KEY,
+            },
+            body: JSON.stringify({ query: mutation }),
+          });
+
+          const data = await resCreate.json();
+          contactId = data.data?.create_item?.id;
+        }
+
+        // ======================================================
+        // 📝 CREAR MENSAJE
+        // ======================================================
+        const today = new Date().toISOString().split("T")[0];
+
+        const createMessage = `
+          mutation {
+            create_item(
+              board_id: ${MESSAGES_BOARD_ID},
+              item_name: "Mensaje ${name.replace(/"/g, '\\"')}",
+              column_values: "{\\"board_relation_mm44y3sx\\":{\\"item_ids\\":[${contactId}]},\\"date_mm444s0k\\":{\\"date\\":\\"${today}\\"}}"
+            ) {
+              id
+            }
+          }
+        `;
+
+        const msgRes = await fetch("https://api.monday.com/v2", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: MONDAY_API_KEY,
+          },
+          body: JSON.stringify({ query: createMessage }),
+        });
+
+        const msgData = await msgRes.json();
+        const messageId = msgData.data?.create_item?.id;
+
+        // ======================================================
+        // 💬 AGREGAR UPDATE
+        // ======================================================
+        if (messageId) {
+          await fetch("https://api.monday.com/v2", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: MONDAY_API_KEY,
+            },
+            body: JSON.stringify({
+              query: `
+                mutation {
+                  create_update(
+                    item_id: ${messageId},
+                    body: "${text.replace(/"/g, '\\"')}"
+                  ) {
+                    id
+                  }
+                }
+              `,
+            }),
+          });
+        }
+
+        // ======================================================
+        // 📤 RESPUESTA AUTOMÁTICA
+        // ======================================================
+        await fetch(
+          `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            },
+            body: JSON.stringify({
+              messaging_product: "whatsapp",
+              to: phone,
+              text: {
+                body: "¡Gracias por tu mensaje! Pronto te contactaremos.",
+              },
+            }),
+          }
+        );
+      }
+
+      return res.status(200).send("EVENT_RECEIVED");
+
+    } catch (error) {
+      console.error("❌ Error:", error);
+      return res.status(500).send("Error");
+    }
+  }
+
+  return res.status(405).send("Method not allowed");
+}
