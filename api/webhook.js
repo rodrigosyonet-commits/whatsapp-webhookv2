@@ -23,11 +23,10 @@ export default async function handler(req, res) {
   const MESSAGES_BOARD_ID = 18416910311;
 
   // ============================
-  // ✅ NORMALIZE PHONE (CRÍTICO)
+  // ✅ NORMALIZE PHONE
   // ============================
   function normalizePhone(phone) {
     if (!phone) return "";
-
     const clean = String(phone).replace(/\D/g, "");
     return clean.startsWith("52") ? clean : "52" + clean;
   }
@@ -77,7 +76,6 @@ export default async function handler(req, res) {
         );
 
         let data = await response.json();
-        console.log("📡 WA TEXT:", data);
 
         if (!response.ok) {
 
@@ -119,6 +117,11 @@ export default async function handler(req, res) {
         for (const entry of req.body.entry || []) {
           for (const change of entry.changes || []) {
 
+            // ✅ NOMBRE DEL USUARIO
+            const contactName =
+              change.value.contacts?.[0]?.profile?.name ||
+              "Cliente";
+
             const messages = change.value.messages || [];
 
             for (const msg of messages) {
@@ -127,7 +130,7 @@ export default async function handler(req, res) {
               const text = msg.text?.body || "";
               const messageId = msg.id;
 
-              console.log("📩 WA:", phone, text);
+              console.log("📩 WA:", contactName, phone);
 
               const isDuplicate = await messageExists(messageId);
               if (isDuplicate) continue;
@@ -135,18 +138,18 @@ export default async function handler(req, res) {
               let contact = await findContact(phone);
 
               if (!contact) {
-                contact = await createContact(phone);
+                contact = await createContact(phone, contactName);
               }
 
               let conversation = await findConversationByPhone(phone);
 
               if (!conversation) {
-                conversation = await createConversation(contact.id, phone);
+                conversation = await createConversation(contact.id, phone, contactName);
               }
 
               await createUpdate(
                 conversation.id,
-                `📥 Cliente:\n${text}\n\n🆔 ${messageId}`
+                `📥 ${contactName}:\n${text}\n\n🆔 ${messageId}`
               );
             }
           }
@@ -201,7 +204,7 @@ export default async function handler(req, res) {
     return d.items_page_by_column_values.items[0] || null;
   }
 
-  async function createContact(phone) {
+  async function createContact(phone, contactName) {
     const values = JSON.stringify({
       phone_mm45s5qs: { phone, countryShortName: "MX" }
     });
@@ -210,7 +213,7 @@ export default async function handler(req, res) {
       mutation {
         create_item(
           board_id: ${CONTACTS_BOARD_ID},
-          item_name: "${phone}",
+          item_name: "${contactName}",
           column_values: ${JSON.stringify(values)}
         ) { id }
       }
@@ -221,13 +224,15 @@ export default async function handler(req, res) {
 
   async function findConversationByPhone(phone) {
 
+    const shortPhone = phone.replace(/^52/, "");
+
     const query = `
       query {
         items_page_by_column_values(
           board_id: ${MESSAGES_BOARD_ID},
           columns: [{
             column_id: "text_mm46jm2k",
-            column_values: ["${phone}"]
+            column_values: ["${phone}", "${shortPhone}"]
           }]
         ) {
           items {
@@ -242,11 +247,10 @@ export default async function handler(req, res) {
 
     if (!items || items.length === 0) return null;
 
-    // ✅ tomar el más reciente
     return items.sort((a, b) => Number(b.id) - Number(a.id))[0];
   }
 
-  async function createConversation(contactId, phone) {
+  async function createConversation(contactId, phone, contactName) {
 
     const values = JSON.stringify({
       board_relation_mm45a2gp: {
@@ -260,7 +264,7 @@ export default async function handler(req, res) {
       mutation {
         create_item(
           board_id: ${MESSAGES_BOARD_ID},
-          item_name: "Chat activo",
+          item_name: "${contactName}",
           column_values: ${JSON.stringify(values)}
         ) { id }
       }
@@ -286,4 +290,3 @@ export default async function handler(req, res) {
     return false;
   }
 }
-``
