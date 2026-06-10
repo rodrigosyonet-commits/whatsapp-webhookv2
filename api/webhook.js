@@ -16,10 +16,10 @@ export default async function handler(req, res) {
   // ============================
   const VERIFY_TOKEN = "rodrigo_token_123";
 
-  const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-  const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+  const WHATSAPP_TOKEN = "EAAhYdCUaGewBRh55dxYd5Nq5QlzwVerE2RjxVnLI21uOb8MqufGYAMuBZB9Bz2UKaoZBVHUMdOLtZCRzCN3G74GiX45gZBigXTewLo8VIVOZAQq6nJ4rMJZCEZB5bcXAPvTVxwkEx4hTW6dWQaGeAKSkaITnEkXf0rDVmZBA7HRsrWTWyOZCZC0vdZA9jRTeLTPQedYJxlxZAGJQeNZBZCbuomLl27ZB5IlhgcVj2evG54Ymm1yCM71Smb9oGhZBBVoAAeCZAGlsecKZCPqebZADf2ZCfDzGjeUxxnKCRPY7Pf15OYEOYgZDZD";
 
-  // ✅ TOKEN MONDAY (PRUEBA)
+  const PHONE_NUMBER_ID = "1114371845095549";
+
   const MONDAY_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjY2Mjc0MDM4OCwiYWFpIjoxMSwidWlkIjoxMDMyMTE3MDQsImlhZCI6IjIwMjYtMDUtMjVUMjI6NDE6NDAuMDAwWiIsInBlciI6Im1lOndyaXRlIiwiYWN0aWQiOjgzMjY0MTAsInJnbiI6InVzZTEifQ.aCSoGeqhkzLvJ_TUn4xuIisR3seqR5VGbaBSR-2Os3w";
 
   const CONTACTS_BOARD_ID = 18416910309;
@@ -53,8 +53,12 @@ export default async function handler(req, res) {
       // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
 
-        const clean = req.body.contactPhone.replace(/[^0-9]/g, "");
-        const phone = clean.startsWith("52") ? clean : "52" + clean;
+        const { contactPhone, replyText } = req.body;
+
+        const clean = contactPhone.replace(/[^0-9]/g, "");
+        const finalPhone = clean.startsWith("52") ? clean : "52" + clean;
+
+        console.log("📤 Enviando:", finalPhone, replyText);
 
         let response = await fetch(
           `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -66,17 +70,19 @@ export default async function handler(req, res) {
             },
             body: JSON.stringify({
               messaging_product: "whatsapp",
-              to: phone,
-              text: { body: req.body.replyText },
+              to: finalPhone,
+              text: { body: replyText },
             }),
           }
         );
 
         let data = await response.json();
-        console.log("📡 TEXT RESPONSE:", data);
+        console.log("📡 WA TEXT:", data);
 
         // fallback template
         if (!response.ok) {
+
+          console.log("⚠️ Usando template fallback");
 
           response = await fetch(
             `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -88,7 +94,7 @@ export default async function handler(req, res) {
               },
               body: JSON.stringify({
                 messaging_product: "whatsapp",
-                to: phone,
+                to: finalPhone,
                 type: "template",
                 template: {
                   name: "hello_world",
@@ -99,7 +105,7 @@ export default async function handler(req, res) {
           );
 
           data = await response.json();
-          console.log("📡 TEMPLATE RESPONSE:", data);
+          console.log("📡 WA TEMPLATE:", data);
 
           if (!response.ok) {
             throw new Error(JSON.stringify(data));
@@ -127,7 +133,7 @@ export default async function handler(req, res) {
               console.log("📩 WA:", phone, text);
 
               // ============================
-              // 1. CONTACTO
+              // ✅ 1. CONTACTO
               // ============================
               let contact = await findContact(phone);
 
@@ -136,7 +142,7 @@ export default async function handler(req, res) {
               }
 
               // ============================
-              // 2. CONVERSACIÓN
+              // ✅ 2. CONVERSACIÓN
               // ============================
               let conversation = await findConversation(contact.id);
 
@@ -145,9 +151,9 @@ export default async function handler(req, res) {
               }
 
               // ============================
-              // 3. UPDATE = MENSAJE
+              // ✅ 3. UPDATE = MENSAJE
               // ============================
-              await createUpdate(conversation.id, text);
+              await createUpdate(conversation.id, `📥 Cliente:\n${text}`);
             }
           }
         }
@@ -226,36 +232,25 @@ export default async function handler(req, res) {
   }
 
   // ============================
-  // 💬 CONVERSACIONES
+  // 💬 CONVERSACIÓN
   // ============================
 
   async function findConversation(contactId) {
     const query = `
       query {
-        boards(ids: ${MESSAGES_BOARD_ID}) {
-          items {
-            id
-            column_values {
-              id
-              value
-            }
-          }
+        items_page_by_column_values(
+          board_id: ${MESSAGES_BOARD_ID},
+          columns: [{
+            column_id: "board_relation_mm45a2gp",
+            column_values: ["${contactId}"]
+          }]
+        ) {
+          items { id }
         }
       }
     `;
-
     const data = await mondayQuery(query);
-    const items = data.boards[0].items;
-
-    return items.find(item =>
-      item.column_values.some(col => {
-        if (col.id === "board_relation_mm45a2gp" && col.value) {
-          const parsed = JSON.parse(col.value);
-          return parsed.linkedPulseIds?.some(p => p.linkedPulseId == contactId);
-        }
-        return false;
-      })
-    );
+    return data.items_page_by_column_values.items[0] || null;
   }
 
   async function createConversation(contactId) {
@@ -275,13 +270,12 @@ export default async function handler(req, res) {
         ) { id }
       }
     `;
-
     const data = await mondayQuery(query);
     return data.create_item;
   }
 
   // ============================
-  // 📨 MENSAJES = UPDATES
+  // 📨 MENSAJES (UPDATES)
   // ============================
 
   async function createUpdate(itemId, text) {
