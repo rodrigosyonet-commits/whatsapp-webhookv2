@@ -210,23 +210,33 @@ export default async function handler(req, res) {
 
   async function findConversationByPhone(phone) {
 
-    const query = `
-      query {
-        items_page_by_column_values(
-          board_id: ${MESSAGES_BOARD_ID},
-          columns: [{
-            column_id: "text_mm46jm2k",
-            column_values: ["${phone}"]
-          }]
-        ) {
-          items { id }
+  const query = `
+    query {
+      items_page_by_column_values(
+        board_id: ${MESSAGES_BOARD_ID},
+        columns: [{
+          column_id: "text_mk39sd", // 👈 tu columna TEXT real
+          column_values: ["${phone}"]
+        }]
+      ) {
+        items {
+          id
+          name
         }
       }
-    `;
+    }
+  `;
 
-    const data = await mondayQuery(query);
-    return data.items_page_by_column_values.items[0] || null;
-  }
+  const data = await mondayQuery(query);
+
+  const items = data.items_page_by_column_values.items;
+
+  if (!items || items.length === 0) return null;
+
+  // ✅ 🔥 CLAVE: tomar el MÁS RECIENTE
+  return items.sort((a, b) => Number(b.id) - Number(a.id))[0];
+}
+
 
   async function createConversation(contactId, phone) {
 
