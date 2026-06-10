@@ -215,7 +215,7 @@ export default async function handler(req, res) {
       items_page_by_column_values(
         board_id: ${MESSAGES_BOARD_ID},
         columns: [{
-          column_id: "text_mk39sd", // 👈 tu columna TEXT real
+          column_id: "text_mm46jm2k", // 👈 tu columna TEXT real
           column_values: ["${phone}"]
         }]
       ) {
