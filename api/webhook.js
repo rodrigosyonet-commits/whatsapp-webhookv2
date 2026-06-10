@@ -53,11 +53,16 @@ export default async function handler(req, res) {
       console.log("📥 BODY:", JSON.stringify(req.body));
 
       // ======================================================
-      // ✅ MONDAY → WHATSAPP
+      // ✅ 1. MONDAY → WHATSAPP
       // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
 
-        const finalPhone = normalizePhone(req.body.contactPhone);
+        const { contactPhone, replyText } = req.body;
+
+        const clean = contactPhone.replace(/[^0-9]/g, "");
+        const finalPhone = clean.startsWith("52") ? clean : "52" + clean;
+
+        console.log("📤 Enviando:", finalPhone, replyText);
 
         let response = await fetch(
           `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -70,14 +75,18 @@ export default async function handler(req, res) {
             body: JSON.stringify({
               messaging_product: "whatsapp",
               to: finalPhone,
-              text: { body: req.body.replyText },
+              text: { body: replyText },
             }),
           }
         );
 
         let data = await response.json();
+        console.log("📡 WA TEXT:", data);
 
+        // fallback template
         if (!response.ok) {
+
+          console.log("⚠️ Usando template fallback");
 
           response = await fetch(
             `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -100,6 +109,7 @@ export default async function handler(req, res) {
           );
 
           data = await response.json();
+          console.log("📡 WA TEMPLATE:", data);
 
           if (!response.ok) {
             throw new Error(JSON.stringify(data));
