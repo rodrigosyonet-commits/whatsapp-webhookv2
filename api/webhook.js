@@ -25,28 +25,38 @@ export default async function handler(req, res) {
   // ============================
   // ✅ NORMALIZE PHONE
   // ============================
-function normalizePhone(phone) {
-  if (!phone) return "";
+// ✅ limpiar teléfono
+const clean = String(contactPhone).replace(/\D/g, "");
 
-  const clean = phone.replace(/\D/g, "");
+// ✅ forzar formato 52 + 10 dígitos (SIN el 1)
+let finalPhone;
 
-  // ✅ Si ya viene en formato correcto
-  if (clean.startsWith("521")) {
-    return clean;
-  }
-
-  // ✅ Si viene con 52 pero sin el 1
-  if (clean.startsWith("52")) {
-    return "521" + clean.slice(2);
-  }
-
-  // ✅ Si viene local (10 dígitos)
-  if (clean.length === 10) {
-    return "521" + clean;
-  }
-
-  return clean;
+// caso 1: ya viene como 5255...
+if (clean.startsWith("52") && clean.length === 12) {
+  finalPhone = clean;
 }
+
+// caso 2: viene como 521... → quitar el 1
+else if (clean.startsWith("521") && clean.length === 13) {
+  finalPhone = "52" + clean.slice(3);
+}
+
+// caso 3: viene local (10 dígitos)
+else if (clean.length === 10) {
+  finalPhone = "52" + clean;
+}
+
+// fallback
+else {
+  finalPhone = clean;
+}
+
+console.log("📤 Enviando mensaje:", {
+  telefono_original: contactPhone,
+  telefono_limpio: clean,
+  telefono_final: finalPhone,
+  texto: replyText
+});
 
   // ============================
   // ✅ META VERIFY
