@@ -15,7 +15,9 @@ export default async function handler(req, res) {
   // ✅ CONFIG
   // ============================
   const VERIFY_TOKEN = "rodrigo_token_123";
+
   const WHATSAPP_TOKEN = "EAAhYdCUaGewBRpWDOPaAEXhZAGVUkPLNpyhJOxN2XtPmsyZBEuhIcte6RtibfWgbWw6bPijnMVv0pK3TOPBPOK3MTZAqxExd4kTKGe2py5knD7EiUALt71gYgokPinZAAUF0nyH4uWbTfksD4cNdDqm5Bot5voFom3UrPZBY2ReBxIpE1p8dN4KBK8zWPOQ9ZBuvG4HcFMxx783wXP6ZAk6vIWcejx4bqjNsTbF4xJb5525nyE1EgeGZCv0XHyyYSRZCISt7MXRZCtNi0B0B4zZCMo9ut0Sh9zhxwrvdoxDZBwZDZD";
+
   const PHONE_NUMBER_ID = "1114371845095549";
   const MONDAY_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjY2Mjc0MDM4OCwiYWFpIjoxMSwidWlkIjoxMDMyMTE3MDQsImlhZCI6IjIwMjYtMDUtMjVUMjI6NDE6NDAuMDAwWiIsInBlciI6Im1lOndyaXRlIiwiYWN0aWQiOjgzMjY0MTAsInJnbiI6InVzZTEifQ.aCSoGeqhkzLvJ_TUn4xuIisR3seqR5VGbaBSR-2Os3w";
 
@@ -23,40 +25,25 @@ export default async function handler(req, res) {
   const MESSAGES_BOARD_ID = 18416910311;
 
   // ============================
-  // ✅ NORMALIZE PHONE
+  // ✅ NORMALIZAR TELÉFONO (TU CASO)
   // ============================
-// ✅ limpiar teléfono
-const clean = String(contactPhone).replace(/\D/g, "");
+  function normalizePhone(phoneRaw) {
+    const clean = String(phoneRaw).replace(/\D/g, "");
 
-// ✅ forzar formato 52 + 10 dígitos (SIN el 1)
-let finalPhone;
+    if (clean.startsWith("521") && clean.length === 13) {
+      return "52" + clean.slice(3);
+    }
 
-// caso 1: ya viene como 5255...
-if (clean.startsWith("52") && clean.length === 12) {
-  finalPhone = clean;
-}
+    if (clean.startsWith("52") && clean.length === 12) {
+      return clean;
+    }
 
-// caso 2: viene como 521... → quitar el 1
-else if (clean.startsWith("521") && clean.length === 13) {
-  finalPhone = "52" + clean.slice(3);
-}
+    if (clean.length === 10) {
+      return "52" + clean;
+    }
 
-// caso 3: viene local (10 dígitos)
-else if (clean.length === 10) {
-  finalPhone = "52" + clean;
-}
-
-// fallback
-else {
-  finalPhone = clean;
-}
-
-console.log("📤 Enviando mensaje:", {
-  telefono_original: contactPhone,
-  telefono_limpio: clean,
-  telefono_final: finalPhone,
-  texto: replyText
-});
+    return clean;
+  }
 
   // ============================
   // ✅ META VERIFY
@@ -80,16 +67,13 @@ console.log("📤 Enviando mensaje:", {
       console.log("📥 BODY:", JSON.stringify(req.body));
 
       // ======================================================
-      // ✅ 1. MONDAY → WHATSAPP
+      // ✅ MONDAY → WHATSAPP
       // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
 
-        const { contactPhone, replyText } = req.body;
+        const finalPhone = normalizePhone(req.body.contactPhone);
 
-        const clean = contactPhone.replace(/[^0-9]/g, "");
-        const finalPhone = clean.startsWith("52") ? clean : "52" + clean;
-
-        console.log("📤 Enviando:", finalPhone, replyText);
+        console.log("📤 Enviando:", finalPhone, req.body.replyText);
 
         let response = await fetch(
           `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -102,7 +86,7 @@ console.log("📤 Enviando mensaje:", {
             body: JSON.stringify({
               messaging_product: "whatsapp",
               to: finalPhone,
-              text: { body: replyText },
+              text: { body: req.body.replyText },
             }),
           }
         );
@@ -110,10 +94,9 @@ console.log("📤 Enviando mensaje:", {
         let data = await response.json();
         console.log("📡 WA TEXT:", data);
 
-        // fallback template
         if (!response.ok) {
 
-          console.log("⚠️ Usando template fallback");
+          console.log("⚠️ fallback template");
 
           response = await fetch(
             `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -154,10 +137,8 @@ console.log("📤 Enviando mensaje:", {
         for (const entry of req.body.entry || []) {
           for (const change of entry.changes || []) {
 
-            // ✅ NOMBRE DEL USUARIO
             const contactName =
-              change.value.contacts?.[0]?.profile?.name ||
-              "Cliente";
+              change.value.contacts?.[0]?.profile?.name || "Cliente";
 
             const messages = change.value.messages || [];
 
@@ -168,9 +149,6 @@ console.log("📤 Enviando mensaje:", {
               const messageId = msg.id;
 
               console.log("📩 WA:", contactName, phone);
-
-              const isDuplicate = await messageExists(messageId);
-              if (isDuplicate) continue;
 
               let contact = await findContact(phone);
 
@@ -186,7 +164,7 @@ console.log("📤 Enviando mensaje:", {
 
               await createUpdate(
                 conversation.id,
-                `📥 ${contactName}:\n${text}\n\n🆔 ${messageId}`
+                `📥 ${contactName}:\n${text}`
               );
             }
           }
@@ -206,7 +184,7 @@ console.log("📤 Enviando mensaje:", {
   return res.status(405).send("Method not allowed");
 
   // ============================
-  // 🔧 HELPERS
+  // 🔧 MONDAY HELPERS
   // ============================
 
   async function mondayQuery(query) {
@@ -241,7 +219,7 @@ console.log("📤 Enviando mensaje:", {
     return d.items_page_by_column_values.items[0] || null;
   }
 
-  async function createContact(phone, contactName) {
+  async function createContact(phone, name) {
     const values = JSON.stringify({
       phone_mm45s5qs: { phone, countryShortName: "MX" }
     });
@@ -250,7 +228,7 @@ console.log("📤 Enviando mensaje:", {
       mutation {
         create_item(
           board_id: ${CONTACTS_BOARD_ID},
-          item_name: "${contactName}",
+          item_name: "${name}",
           column_values: ${JSON.stringify(values)}
         ) { id }
       }
@@ -272,9 +250,7 @@ console.log("📤 Enviando mensaje:", {
             column_values: ["${phone}", "${shortPhone}"]
           }]
         ) {
-          items {
-            id
-          }
+          items { id }
         }
       }
     `;
@@ -287,7 +263,7 @@ console.log("📤 Enviando mensaje:", {
     return items.sort((a, b) => Number(b.id) - Number(a.id))[0];
   }
 
-  async function createConversation(contactId, phone, contactName) {
+  async function createConversation(contactId, phone, name) {
 
     const values = JSON.stringify({
       board_relation_mm45a2gp: {
@@ -301,7 +277,7 @@ console.log("📤 Enviando mensaje:", {
       mutation {
         create_item(
           board_id: ${MESSAGES_BOARD_ID},
-          item_name: "${contactName}",
+          item_name: "${name}",
           column_values: ${JSON.stringify(values)}
         ) { id }
       }
@@ -321,9 +297,5 @@ console.log("📤 Enviando mensaje:", {
       }
     `;
     await mondayQuery(q);
-  }
-
-  async function messageExists(messageId) {
-    return false;
   }
 }
