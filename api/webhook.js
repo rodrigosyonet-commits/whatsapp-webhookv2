@@ -215,7 +215,7 @@ export default async function handler(req, res) {
         items_page_by_column_values(
           board_id: ${MESSAGES_BOARD_ID},
           columns: [{
-            column_id: "lookup_mm46bgdw",
+            column_id: "text_mm46jm2k",
             column_values: ["${phone}"]
           }]
         ) {
@@ -234,7 +234,7 @@ export default async function handler(req, res) {
       board_relation_mm45a2gp: {
         item_ids: [parseInt(contactId)]
       },
-      lookup_mm46bgdw: phone,
+      text_mm46jm2k: phone,
       color_mm459sn8: { label: "Open" }
     });
 
