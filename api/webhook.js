@@ -23,6 +23,16 @@ export default async function handler(req, res) {
   const MESSAGES_BOARD_ID = 18416910311;
 
   // ============================
+  // ✅ NORMALIZE PHONE (CRÍTICO)
+  // ============================
+  function normalizePhone(phone) {
+    if (!phone) return "";
+
+    const clean = String(phone).replace(/\D/g, "");
+    return clean.startsWith("52") ? clean : "52" + clean;
+  }
+
+  // ============================
   // ✅ META VERIFY
   // ============================
   if (req.method === "GET") {
@@ -44,12 +54,11 @@ export default async function handler(req, res) {
       console.log("📥 BODY:", JSON.stringify(req.body));
 
       // ======================================================
-      // ✅ 1. MONDAY → WHATSAPP
+      // ✅ MONDAY → WHATSAPP
       // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
 
-        const clean = req.body.contactPhone.replace(/[^0-9]/g, "");
-        const finalPhone = clean.startsWith("52") ? clean : "52" + clean;
+        const finalPhone = normalizePhone(req.body.contactPhone);
 
         let response = await fetch(
           `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -103,7 +112,7 @@ export default async function handler(req, res) {
       }
 
       // ======================================================
-      // ✅ 2. WHATSAPP → MONDAY
+      // ✅ WHATSAPP → MONDAY
       // ======================================================
       if (req.body.object === "whatsapp_business_account") {
 
@@ -114,9 +123,11 @@ export default async function handler(req, res) {
 
             for (const msg of messages) {
 
-              const phone = msg.from;
+              const phone = normalizePhone(msg.from);
               const text = msg.text?.body || "";
               const messageId = msg.id;
+
+              console.log("📩 WA:", phone, text);
 
               const isDuplicate = await messageExists(messageId);
               if (isDuplicate) continue;
@@ -210,33 +221,30 @@ export default async function handler(req, res) {
 
   async function findConversationByPhone(phone) {
 
-  const query = `
-    query {
-      items_page_by_column_values(
-        board_id: ${MESSAGES_BOARD_ID},
-        columns: [{
-          column_id: "text_mm46jm2k", // 👈 tu columna TEXT real
-          column_values: ["${phone}"]
-        }]
-      ) {
-        items {
-          id
-          name
+    const query = `
+      query {
+        items_page_by_column_values(
+          board_id: ${MESSAGES_BOARD_ID},
+          columns: [{
+            column_id: "text_mm46jm2k",
+            column_values: ["${phone}"]
+          }]
+        ) {
+          items {
+            id
+          }
         }
       }
-    }
-  `;
+    `;
 
-  const data = await mondayQuery(query);
+    const data = await mondayQuery(query);
+    const items = data.items_page_by_column_values.items;
 
-  const items = data.items_page_by_column_values.items;
+    if (!items || items.length === 0) return null;
 
-  if (!items || items.length === 0) return null;
-
-  // ✅ 🔥 CLAVE: tomar el MÁS RECIENTE
-  return items.sort((a, b) => Number(b.id) - Number(a.id))[0];
-}
-
+    // ✅ tomar el más reciente
+    return items.sort((a, b) => Number(b.id) - Number(a.id))[0];
+  }
 
   async function createConversation(contactId, phone) {
 
@@ -278,3 +286,4 @@ export default async function handler(req, res) {
     return false;
   }
 }
+``
