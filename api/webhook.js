@@ -48,12 +48,8 @@ export default async function handler(req, res) {
       // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
 
-        const { contactPhone, replyText } = req.body;
-
-        const clean = contactPhone.replace(/[^0-9]/g, "");
+        const clean = req.body.contactPhone.replace(/[^0-9]/g, "");
         const finalPhone = clean.startsWith("52") ? clean : "52" + clean;
-
-        console.log("📤 Enviando:", finalPhone, replyText);
 
         let response = await fetch(
           `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -66,7 +62,7 @@ export default async function handler(req, res) {
             body: JSON.stringify({
               messaging_product: "whatsapp",
               to: finalPhone,
-              text: { body: replyText },
+              text: { body: req.body.replyText },
             }),
           }
         );
@@ -74,10 +70,7 @@ export default async function handler(req, res) {
         let data = await response.json();
         console.log("📡 WA TEXT:", data);
 
-        // fallback template
         if (!response.ok) {
-
-          console.log("⚠️ Usando template fallback");
 
           response = await fetch(
             `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -100,7 +93,6 @@ export default async function handler(req, res) {
           );
 
           data = await response.json();
-          console.log("📡 WA TEMPLATE:", data);
 
           if (!response.ok) {
             throw new Error(JSON.stringify(data));
@@ -110,70 +102,61 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      // ===================================
-// ✅ WHATSAPP → MONDAY
-// ===================================
-if (req.body.object === "whatsapp_business_account") {
+      // ======================================================
+      // ✅ 2. WHATSAPP → MONDAY
+      // ======================================================
+      if (req.body.object === "whatsapp_business_account") {
 
-  for (const entry of req.body.entry || []) {
-    for (const change of entry.changes || []) {
+        for (const entry of req.body.entry || []) {
+          for (const change of entry.changes || []) {
 
-      const messages = change.value.messages || [];
+            const messages = change.value.messages || [];
 
-      for (const msg of messages) {
+            for (const msg of messages) {
 
-        const phone = msg.from;
-        const text = msg.text?.body || "";
-        const messageId = msg.id;
+              const phone = msg.from;
+              const text = msg.text?.body || "";
+              const messageId = msg.id;
 
-        console.log("📩 WA:", phone, text);
+              const isDuplicate = await messageExists(messageId);
+              if (isDuplicate) continue;
 
-        // ✅ DEDUPLICACIÓN (por ahora básica)
-        const isDuplicate = await messageExists(messageId);
-        if (isDuplicate) {
-          console.log("⚠️ mensaje duplicado ignorado:", messageId);
-          continue;
+              let contact = await findContact(phone);
+
+              if (!contact) {
+                contact = await createContact(phone);
+              }
+
+              let conversation = await findConversationByPhone(phone);
+
+              if (!conversation) {
+                conversation = await createConversation(contact.id, phone);
+              }
+
+              await createUpdate(
+                conversation.id,
+                `📥 Cliente:\n${text}\n\n🆔 ${messageId}`
+              );
+            }
+          }
         }
 
-        // ============================
-        // ✅ 1. CONTACTO
-        // ============================
-        let contact = await findContact(phone);
-
-        if (!contact) {
-          console.log("➕ creando contacto");
-          contact = await createContact(phone);
-        }
-
-        // ============================
-        // ✅ 2. CONVERSACIÓN (🔥 POR PHONE)
-        // ============================
-        let conversation = await findConversationByPhone(phone);
-
-        if (!conversation) {
-          console.log("➕ creando conversación");
-          conversation = await createConversation(contact.id, phone);
-        }
-
-        // ============================
-        // ✅ 3. UPDATE (mensaje real)
-        // ============================
-        await createUpdate(
-          conversation.id,
-          `📥 Cliente:\n${text}\n\n🆔 ${messageId}`
-        );
+        return res.status(200).send("EVENT_RECEIVED");
       }
+
+      return res.status(200).send("OK");
+
+    } catch (err) {
+      console.error("❌ ERROR:", err);
+      return res.status(500).json(err.message);
     }
   }
 
-  return res.status(200).send("EVENT_RECEIVED");
-}
+  return res.status(405).send("Method not allowed");
 
-return res.status(200).send("OK");
-
-  // ===================================
+  // ============================
   // 🔧 HELPERS
-  // ===================================
+  // ============================
 
   async function mondayQuery(query) {
     const res = await fetch("https://api.monday.com/v2", {
@@ -225,55 +208,51 @@ return res.status(200).send("OK");
     return d.create_item;
   }
 
-  async function createConversation(contactId, phone) {
+  async function findConversationByPhone(phone) {
 
-  const values = JSON.stringify({
-    board_relation_mm45a2gp: {
-      item_ids: [parseInt(contactId)]
-    },
-    lookup_mm46bgdw: phone, // 🔥 CLAVE
-    color_mm459sn8: { label: "Open" }
-  });
-
-  const query = `
-    mutation {
-      create_item(
-        board_id: ${MESSAGES_BOARD_ID},
-        item_name: "Chat activo",
-        column_values: ${JSON.stringify(values)}
-      ) {
-        id
-      }
-    }
-  `;
-
-  const data = await mondayQuery(query);
-  return data.create_item;
-}
-
-async function findConversationByPhone(phone) {
-
-  const query = `
-    query {
-      items_page_by_column_values(
-        board_id: ${MESSAGES_BOARD_ID},
-        columns: [{
-          column_id: "lookup_mm46bgdw",
-          column_values: ["${phone}"]
-        }]
-      ) {
-        items {
-          id
+    const query = `
+      query {
+        items_page_by_column_values(
+          board_id: ${MESSAGES_BOARD_ID},
+          columns: [{
+            column_id: "lookup_mm46bgdw",
+            column_values: ["${phone}"]
+          }]
+        ) {
+          items { id }
         }
       }
-    }
-  `;
+    `;
 
-  const data = await mondayQuery(query);
-  return data.items_page_by_column_values.items[0] || null;
-}
-  
-      async function createUpdate(itemId, text) {
+    const data = await mondayQuery(query);
+    return data.items_page_by_column_values.items[0] || null;
+  }
+
+  async function createConversation(contactId, phone) {
+
+    const values = JSON.stringify({
+      board_relation_mm45a2gp: {
+        item_ids: [parseInt(contactId)]
+      },
+      lookup_mm46bgdw: phone,
+      color_mm459sn8: { label: "Open" }
+    });
+
+    const query = `
+      mutation {
+        create_item(
+          board_id: ${MESSAGES_BOARD_ID},
+          item_name: "Chat activo",
+          column_values: ${JSON.stringify(values)}
+        ) { id }
+      }
+    `;
+
+    const data = await mondayQuery(query);
+    return data.create_item;
+  }
+
+  async function createUpdate(itemId, text) {
     const q = `
       mutation {
         create_update(
@@ -285,9 +264,7 @@ async function findConversationByPhone(phone) {
     await mondayQuery(q);
   }
 
-  // ✅ simple dedup usando texto (puedes mejorar luego)
   async function messageExists(messageId) {
-    // versión simple (no bloquea flujo)
     return false;
   }
 }
