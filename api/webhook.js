@@ -1,7 +1,7 @@
 export default async function handler(req, res) {
 
   // ============================
-  // ✅ CORS (requerido para Monday App)
+  // ✅ CORS
   // ============================
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -11,12 +11,16 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const VERIFY_TOKEN = "rodrigo_token_123";
+  // ============================
+  // ✅ ENV VARS (usa Vercel)
+  // ============================
+  const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+  const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+  const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+  const MONDAY_API_KEY = process.env.MONDAY_API_KEY;
 
-  // ✅ TOKEN FUNCIONAL (el de tu curl)
-  const WHATSAPP_TOKEN = "EAAhYdCUaGewBRh55dxYd5Nq5QlzwVerE2RjxVnLI21uOb8MqufGYAMuBZB9Bz2UKaoZBVHUMdOLtZCRzCN3G74GiX45gZBigXTewLo8VIVOZAQq6nJ4rMJZCEZB5bcXAPvTVxwkEx4hTW6dWQaGeAKSkaITnEkXf0rDVmZBA7HRsrWTWyOZCZC0vdZA9jRTeLTPQedYJxlxZAGJQeNZBZCbuomLl27ZB5IlhgcVj2evG54Ymm1yCM71Smb9oGhZBBVoAAeCZAGlsecKZCPqebZADf2ZCfDzGjeUxxnKCRPY7Pf15OYEOYgZDZD";
-
-  const PHONE_NUMBER_ID = "1114371845095549";
+  const CONTACTS_BOARD_ID = 18416910309;
+  const MESSAGES_BOARD_ID = 18416910311;
 
   // ============================
   // ✅ VERIFICACIÓN META
@@ -39,27 +43,16 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
 
-      console.log("📥 BODY COMPLETO:", req.body);
+      console.log("📥 BODY:", JSON.stringify(req.body));
 
       // ======================================================
-      // 📤 MENSAJE DESDE MONDAY → WHATSAPP
+      // ✅ 1. MONDAY → WHATSAPP (YA FUNCIONA)
       // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
 
-        const { contactPhone, replyText } = req.body;
+        const clean = req.body.contactPhone.replace(/[^0-9]/g, "");
+        const phone = clean.startsWith("52") ? clean : "52" + clean;
 
-        // ✅ limpiar teléfono
-        const clean = contactPhone.replace(/[^0-9]/g, "");
-        const finalPhone = clean.startsWith("52") ? clean : "52" + clean;
-
-        console.log("📤 Enviando mensaje:", {
-          telefono: finalPhone,
-          texto: replyText
-        });
-
-        // ======================================================
-        // ✅ 1. INTENTO → TEXTO (si hay ventana abierta)
-        // ======================================================
         let response = await fetch(
           `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
           {
@@ -70,21 +63,17 @@ export default async function handler(req, res) {
             },
             body: JSON.stringify({
               messaging_product: "whatsapp",
-              to: finalPhone,
-              text: { body: replyText }, // ✅ usa el texto de Monday
+              to: phone,
+              text: { body: req.body.replyText },
             }),
           }
         );
 
         let data = await response.json();
-        console.log("📡 RESPONSE TEXT:", data);
+        console.log("📡 TEXT RESPONSE:", data);
 
-        // ======================================================
-        // ✅ 2. FALLBACK → TEMPLATE (si no hay ventana)
-        // ======================================================
+        // fallback template
         if (!response.ok) {
-
-          console.log("⚠️ Ventana cerrada → usando template");
 
           response = await fetch(
             `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
@@ -96,7 +85,7 @@ export default async function handler(req, res) {
               },
               body: JSON.stringify({
                 messaging_product: "whatsapp",
-                to: finalPhone,
+                to: phone,
                 type: "template",
                 template: {
                   name: "hello_world",
@@ -107,28 +96,204 @@ export default async function handler(req, res) {
           );
 
           data = await response.json();
-          console.log("📡 RESPONSE TEMPLATE:", data);
+          console.log("📡 TEMPLATE RESPONSE:", data);
 
           if (!response.ok) {
             throw new Error(JSON.stringify(data));
           }
         }
 
-        console.log("✅ Mensaje enviado correctamente");
-
         return res.status(200).json({ success: true });
       }
 
       // ======================================================
-      // 📥 EVENTO DE META → SOLO CONFIRMAR
+      // ✅ 2. WHATSAPP → MONDAY (CORREGIDO)
       // ======================================================
-      return res.status(200).send("EVENT_RECEIVED");
+      if (req.body.object === "whatsapp_business_account") {
+
+        for (const entry of req.body.entry || []) {
+          for (const change of entry.changes || []) {
+
+            const messages = change.value.messages || [];
+
+            for (const msg of messages) {
+
+              const phone = msg.from;
+              const text = msg.text?.body || "";
+              const timestamp = new Date(parseInt(msg.timestamp) * 1000);
+
+              console.log("📩 WA IN:", phone, text);
+
+              // ====================================
+              // 1. Buscar contacto
+              // ====================================
+              let contact = await findContact(phone);
+
+              if (!contact) {
+                contact = await createContact(phone);
+              }
+
+              // ====================================
+              // 2. Buscar conversación
+              // ====================================
+              let conversation = await findConversation(contact.id);
+
+              if (!conversation) {
+                conversation = await createConversation(contact.id);
+              }
+
+              // ====================================
+              // 3. Crear UPDATE (mensaje real)
+              // ====================================
+              await createUpdate(conversation.id, text);
+
+            }
+          }
+        }
+
+        return res.status(200).send("EVENT_RECEIVED");
+      }
+
+      return res.status(200).send("OK");
 
     } catch (error) {
-      console.error("❌ ERROR GENERAL:", error);
+      console.error("❌ ERROR:", error);
       return res.status(500).send("Error");
     }
   }
 
   return res.status(405).send("Method not allowed");
+
+  // ============================================================
+  // 🔧 HELPERS MONDAY
+  // ============================================================
+
+  async function mondayQuery(query) {
+    const res = await fetch("https://api.monday.com/v2", {
+      method: "POST",
+      headers: {
+        Authorization: MONDAY_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    const data = await res.json();
+
+    if (data.errors) {
+      throw new Error(JSON.stringify(data.errors));
+    }
+
+    return data.data;
+  }
+
+  // ============================
+  // 👤 CONTACTOS
+  // ============================
+
+  async function findContact(phone) {
+    const query = `
+      query {
+        items_page_by_column_values(
+          board_id: ${CONTACTS_BOARD_ID},
+          columns: [{column_id: "phone_mm45s5qs", column_values: ["${phone}"]}]
+        ) {
+          items { id name }
+        }
+      }
+    `;
+    const data = await mondayQuery(query);
+    return data.items_page_by_column_values.items[0] || null;
+  }
+
+  async function createContact(phone) {
+    const columnValues = JSON.stringify({
+      phone_mm45s5qs: { phone, countryShortName: "MX" }
+    });
+
+    const query = `
+      mutation {
+        create_item(
+          board_id: ${CONTACTS_BOARD_ID},
+          item_name: "${phone}",
+          column_values: ${JSON.stringify(columnValues)}
+        ) { id }
+      }
+    `;
+    const data = await mondayQuery(query);
+    return data.create_item;
+  }
+
+  // ============================
+  // 💬 CONVERSACIONES
+  // ============================
+
+  async function findConversation(contactId) {
+    const query = `
+      query {
+        items_page(board_id: ${MESSAGES_BOARD_ID}, limit: 50) {
+          items {
+            id
+            column_values {
+              id
+              value
+            }
+          }
+        }
+      }
+    `;
+
+    const data = await mondayQuery(query);
+
+    return data.items_page.items.find(item =>
+      item.column_values.some(col =>
+        col.id === "board_relation_mm45a2gp" &&
+        col.value &&
+        col.value.includes(contactId)
+      )
+    );
+  }
+
+  async function createConversation(contactId) {
+    const columnValues = JSON.stringify({
+      board_relation_mm45a2gp: {
+        item_ids: [parseInt(contactId)]
+      },
+      color_mm459sn8: { label: "Open" }
+    });
+
+    const query = `
+      mutation {
+        create_item(
+          board_id: ${MESSAGES_BOARD_ID},
+          item_name: "Chat activo",
+          column_values: ${JSON.stringify(columnValues)}
+        ) { id }
+      }
+    `;
+
+    const data = await mondayQuery(query);
+    return data.create_item;
+  }
+
+  // ============================
+  // 📨 MENSAJES = UPDATES ✅
+  // ============================
+
+  async function createUpdate(itemId, text) {
+
+    const query = `
+      mutation {
+        create_update(
+          item_id: ${itemId},
+          body: ${JSON.stringify(text)}
+        ) {
+          id
+        }
+      }
+    `;
+
+    await mondayQuery(query);
+  }
 }
+``
