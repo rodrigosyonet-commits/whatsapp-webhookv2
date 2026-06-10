@@ -43,16 +43,43 @@ export default async function handler(req, res) {
 
       console.log("📥 BODY:", JSON.stringify(req.body));
 
-      // ===================================
-      // ✅ MONDAY → WHATSAPP
-      // ===================================
+      // ======================================================
+      // ✅ 1. MONDAY → WHATSAPP
+      // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
 
-        const clean = req.body.contactPhone.replace(/\D/g, "");
-        const phone = clean.startsWith("52") ? clean : "52" + clean;
+        const { contactPhone, replyText } = req.body;
 
-        const send = async (payload) => {
-          const res = await fetch(
+        const clean = contactPhone.replace(/[^0-9]/g, "");
+        const finalPhone = clean.startsWith("52") ? clean : "52" + clean;
+
+        console.log("📤 Enviando:", finalPhone, replyText);
+
+        let response = await fetch(
+          `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+            },
+            body: JSON.stringify({
+              messaging_product: "whatsapp",
+              to: finalPhone,
+              text: { body: replyText },
+            }),
+          }
+        );
+
+        let data = await response.json();
+        console.log("📡 WA TEXT:", data);
+
+        // fallback template
+        if (!response.ok) {
+
+          console.log("⚠️ Usando template fallback");
+
+          response = await fetch(
             `https://graph.facebook.com/v25.0/${PHONE_NUMBER_ID}/messages`,
             {
               method: "POST",
@@ -60,38 +87,27 @@ export default async function handler(req, res) {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${WHATSAPP_TOKEN}`,
               },
-              body: JSON.stringify(payload),
+              body: JSON.stringify({
+                messaging_product: "whatsapp",
+                to: finalPhone,
+                type: "template",
+                template: {
+                  name: "hello_world",
+                  language: { code: "en_US" }
+                }
+              }),
             }
           );
-          const data = await res.json();
-          return { res, data };
-        };
 
-        let { res: r1, data } = await send({
-          messaging_product: "whatsapp",
-          to: phone,
-          text: { body: req.body.replyText },
-        });
+          data = await response.json();
+          console.log("📡 WA TEMPLATE:", data);
 
-        if (!r1.ok) {
-          console.log("⚠️ fallback template");
-
-          const r2 = await send({
-            messaging_product: "whatsapp",
-            to: phone,
-            type: "template",
-            template: {
-              name: "hello_world",
-              language: { code: "en_US" },
-            },
-          });
-
-          if (!r2.res.ok) {
-            throw new Error(JSON.stringify(r2.data));
+          if (!response.ok) {
+            throw new Error(JSON.stringify(data));
           }
         }
 
-        return res.status(200).json({ ok: true });
+        return res.status(200).json({ success: true });
       }
 
       // ===================================
