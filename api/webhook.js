@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
   const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
-  // ✅ 🔴 TOKEN MONDAY HARDCODEADO (PRUEBA)
+  // ✅ TOKEN MONDAY (PRUEBA)
   const MONDAY_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjY2Mjc0MDM4OCwiYWFpIjoxMSwidWlkIjoxMDMyMTE3MDQsImlhZCI6IjIwMjYtMDUtMjVUMjI6NDE6NDAuMDAwWiIsInBlciI6Im1lOndyaXRlIiwiYWN0aWQiOjgzMjY0MTAsInJnbiI6InVzZTEifQ.aCSoGeqhkzLvJ_TUn4xuIisR3seqR5VGbaBSR-2Os3w";
 
   const CONTACTS_BOARD_ID = 18416910309;
@@ -49,7 +49,7 @@ export default async function handler(req, res) {
       console.log("📥 BODY:", JSON.stringify(req.body));
 
       // ======================================================
-      // ✅ MONDAY → WHATSAPP
+      // ✅ 1. MONDAY → WHATSAPP
       // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
 
@@ -75,6 +75,7 @@ export default async function handler(req, res) {
         let data = await response.json();
         console.log("📡 TEXT RESPONSE:", data);
 
+        // fallback template
         if (!response.ok) {
 
           response = await fetch(
@@ -109,7 +110,7 @@ export default async function handler(req, res) {
       }
 
       // ======================================================
-      // ✅ WHATSAPP → MONDAY
+      // ✅ 2. WHATSAPP → MONDAY
       // ======================================================
       if (req.body.object === "whatsapp_business_account") {
 
@@ -125,19 +126,27 @@ export default async function handler(req, res) {
 
               console.log("📩 WA:", phone, text);
 
-              // ✅ 1. CONTACTO
+              // ============================
+              // 1. CONTACTO
+              // ============================
               let contact = await findContact(phone);
+
               if (!contact) {
                 contact = await createContact(phone);
               }
 
-              // ✅ 2. CONVERSACIÓN
+              // ============================
+              // 2. CONVERSACIÓN
+              // ============================
               let conversation = await findConversation(contact.id);
+
               if (!conversation) {
                 conversation = await createConversation(contact.id);
               }
 
-              // ✅ 3. UPDATE (MENSAJE)
+              // ============================
+              // 3. UPDATE = MENSAJE
+              // ============================
               await createUpdate(conversation.id, text);
             }
           }
@@ -157,7 +166,7 @@ export default async function handler(req, res) {
   return res.status(405).send("Method not allowed");
 
   // ============================================================
-  // 🔧 MONDAY HELPERS
+  // 🔧 HELPERS MONDAY
   // ============================================================
 
   async function mondayQuery(query) {
@@ -180,7 +189,7 @@ export default async function handler(req, res) {
   }
 
   // ============================
-  // CONTACTOS
+  // 👤 CONTACTOS
   // ============================
 
   async function findContact(phone) {
@@ -217,13 +226,13 @@ export default async function handler(req, res) {
   }
 
   // ============================
-  // CONVERSACIÓN
+  // 💬 CONVERSACIONES
   // ============================
 
   async function findConversation(contactId) {
     const query = `
       query {
-        items_page(board_id: ${MESSAGES_BOARD_ID}, limit: 50) {
+        boards(ids: ${MESSAGES_BOARD_ID}) {
           items {
             id
             column_values {
@@ -236,8 +245,9 @@ export default async function handler(req, res) {
     `;
 
     const data = await mondayQuery(query);
+    const items = data.boards[0].items;
 
-    return data.items_page.items.find(item =>
+    return items.find(item =>
       item.column_values.some(col => {
         if (col.id === "board_relation_mm45a2gp" && col.value) {
           const parsed = JSON.parse(col.value);
@@ -271,7 +281,7 @@ export default async function handler(req, res) {
   }
 
   // ============================
-  // MENSAJES (UPDATES)
+  // 📨 MENSAJES = UPDATES
   // ============================
 
   async function createUpdate(itemId, text) {
