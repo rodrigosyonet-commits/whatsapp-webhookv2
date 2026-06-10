@@ -12,12 +12,15 @@ export default async function handler(req, res) {
   }
 
   // ============================
-  // ✅ ENV VARS (usa Vercel)
+  // ✅ CONFIG
   // ============================
-  const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+  const VERIFY_TOKEN = "rodrigo_token_123";
+
   const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
   const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
-  const MONDAY_API_KEY = process.env.MONDAY_API_KEY;
+
+  // ✅ 🔴 TOKEN MONDAY HARDCODEADO (PRUEBA)
+  const MONDAY_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjY2Mjc0MDM4OCwiYWFpIjoxMSwidWlkIjoxMDMyMTE3MDQsImlhZCI6IjIwMjYtMDUtMjVUMjI6NDE6NDAuMDAwWiIsInBlciI6Im1lOndyaXRlIiwiYWN0aWQiOjgzMjY0MTAsInJnbiI6InVzZTEifQ.aCSoGeqhkzLvJ_TUn4xuIisR3seqR5VGbaBSR-2Os3w";
 
   const CONTACTS_BOARD_ID = 18416910309;
   const MESSAGES_BOARD_ID = 18416910311;
@@ -46,7 +49,7 @@ export default async function handler(req, res) {
       console.log("📥 BODY:", JSON.stringify(req.body));
 
       // ======================================================
-      // ✅ 1. MONDAY → WHATSAPP (YA FUNCIONA)
+      // ✅ MONDAY → WHATSAPP
       // ======================================================
       if (req.body.replyText && req.body.contactPhone) {
 
@@ -72,7 +75,6 @@ export default async function handler(req, res) {
         let data = await response.json();
         console.log("📡 TEXT RESPONSE:", data);
 
-        // fallback template
         if (!response.ok) {
 
           response = await fetch(
@@ -107,7 +109,7 @@ export default async function handler(req, res) {
       }
 
       // ======================================================
-      // ✅ 2. WHATSAPP → MONDAY (CORREGIDO)
+      // ✅ WHATSAPP → MONDAY
       // ======================================================
       if (req.body.object === "whatsapp_business_account") {
 
@@ -120,33 +122,23 @@ export default async function handler(req, res) {
 
               const phone = msg.from;
               const text = msg.text?.body || "";
-              const timestamp = new Date(parseInt(msg.timestamp) * 1000);
 
-              console.log("📩 WA IN:", phone, text);
+              console.log("📩 WA:", phone, text);
 
-              // ====================================
-              // 1. Buscar contacto
-              // ====================================
+              // ✅ 1. CONTACTO
               let contact = await findContact(phone);
-
               if (!contact) {
                 contact = await createContact(phone);
               }
 
-              // ====================================
-              // 2. Buscar conversación
-              // ====================================
+              // ✅ 2. CONVERSACIÓN
               let conversation = await findConversation(contact.id);
-
               if (!conversation) {
                 conversation = await createConversation(contact.id);
               }
 
-              // ====================================
-              // 3. Crear UPDATE (mensaje real)
-              // ====================================
+              // ✅ 3. UPDATE (MENSAJE)
               await createUpdate(conversation.id, text);
-
             }
           }
         }
@@ -158,14 +150,14 @@ export default async function handler(req, res) {
 
     } catch (error) {
       console.error("❌ ERROR:", error);
-      return res.status(500).send("Error");
+      return res.status(500).json(error.message);
     }
   }
 
   return res.status(405).send("Method not allowed");
 
   // ============================================================
-  // 🔧 HELPERS MONDAY
+  // 🔧 MONDAY HELPERS
   // ============================================================
 
   async function mondayQuery(query) {
@@ -188,7 +180,7 @@ export default async function handler(req, res) {
   }
 
   // ============================
-  // 👤 CONTACTOS
+  // CONTACTOS
   // ============================
 
   async function findContact(phone) {
@@ -225,7 +217,7 @@ export default async function handler(req, res) {
   }
 
   // ============================
-  // 💬 CONVERSACIONES
+  // CONVERSACIÓN
   // ============================
 
   async function findConversation(contactId) {
@@ -246,11 +238,13 @@ export default async function handler(req, res) {
     const data = await mondayQuery(query);
 
     return data.items_page.items.find(item =>
-      item.column_values.some(col =>
-        col.id === "board_relation_mm45a2gp" &&
-        col.value &&
-        col.value.includes(contactId)
-      )
+      item.column_values.some(col => {
+        if (col.id === "board_relation_mm45a2gp" && col.value) {
+          const parsed = JSON.parse(col.value);
+          return parsed.linkedPulseIds?.some(p => p.linkedPulseId == contactId);
+        }
+        return false;
+      })
     );
   }
 
@@ -277,23 +271,18 @@ export default async function handler(req, res) {
   }
 
   // ============================
-  // 📨 MENSAJES = UPDATES ✅
+  // MENSAJES (UPDATES)
   // ============================
 
   async function createUpdate(itemId, text) {
-
     const query = `
       mutation {
         create_update(
           item_id: ${itemId},
           body: ${JSON.stringify(text)}
-        ) {
-          id
-        }
+        ) { id }
       }
     `;
-
     await mondayQuery(query);
   }
 }
-``
