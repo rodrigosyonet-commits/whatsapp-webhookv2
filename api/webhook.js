@@ -25,11 +25,28 @@ export default async function handler(req, res) {
   // ============================
   // ✅ NORMALIZE PHONE
   // ============================
-  function normalizePhone(phone) {
-    if (!phone) return "";
-    const clean = String(phone).replace(/\D/g, "");
-    return clean.startsWith("52") ? clean : "52" + clean;
+function normalizePhone(phone) {
+  if (!phone) return "";
+
+  const clean = phone.replace(/\D/g, "");
+
+  // ✅ Si ya viene en formato correcto
+  if (clean.startsWith("521")) {
+    return clean;
   }
+
+  // ✅ Si viene con 52 pero sin el 1
+  if (clean.startsWith("52")) {
+    return "521" + clean.slice(2);
+  }
+
+  // ✅ Si viene local (10 dígitos)
+  if (clean.length === 10) {
+    return "521" + clean;
+  }
+
+  return clean;
+}
 
   // ============================
   // ✅ META VERIFY
