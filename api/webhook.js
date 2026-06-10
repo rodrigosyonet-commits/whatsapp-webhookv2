@@ -251,7 +251,10 @@ return res.status(200).send("OK");
   return data.create_item;
 }
 
-async function findConversationByPhone(phone) {async function findConversationByPhone query {
+async function findConversationByPhone(phone) {
+
+  const query = `
+    query {
       items_page_by_column_values(
         board_id: ${MESSAGES_BOARD_ID},
         columns: [{
@@ -269,9 +272,8 @@ async function findConversationByPhone(phone) {async function findConversationBy
   const data = await mondayQuery(query);
   return data.items_page_by_column_values.items[0] || null;
 }
-  const query = `
-
-  async function createUpdate(itemId, text) {
+  
+      async function createUpdate(itemId, text) {
     const q = `
       mutation {
         create_update(
